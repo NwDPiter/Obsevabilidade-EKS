@@ -1,0 +1,49 @@
+input {
+  http {
+    port => 5044
+    codec => "plain"  # Mude de json para plain
+  }
+}
+
+filter {
+  # Parse Apache combined log format
+  grok {
+    match => { 
+      "message" => "%{IPORHOST:clientip} - %{USER:ident} \[%{HTTPDATE:timestamp}\] \"%{WORD:verb} %{DATA:request} HTTP/%{NUMBER:httpversion}\" %{NUMBER:response} (?:-|%{NUMBER:bytes}) %{QS:referrer} %{QS:agent}"
+    }
+  }
+  
+  # Parse timestamp
+  date {
+    match => [ "timestamp", "dd/MMM/yyyy:HH:mm:ss Z" ]
+    locale => "en"
+  }
+  
+  # GeoIP
+  geoip {
+    source => "clientip"
+    target => "geoip"
+  }
+  
+  # User Agent
+  useragent {
+    source => "agent"
+    target => "user_agent"
+  }
+  
+  # Remove campo event.original que não é necessário
+  mutate {
+    remove_field => ["event"]
+  }
+}
+
+output {
+  elasticsearch {
+    hosts => ["http://elasticsearch:9200"]
+    index => "wordpress-logs-%{+YYYY.MM.dd}"
+  }
+  
+  stdout { 
+    codec => rubydebug 
+  }
+}

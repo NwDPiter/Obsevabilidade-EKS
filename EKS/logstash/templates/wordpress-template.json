@@ -1,0 +1,64 @@
+{
+  "index_patterns": ["wordpress-logs-*"],
+  "mappings": {
+    "properties": {
+      "click_type": {
+        "type": "keyword"
+      },
+      "content_type": {
+        "type": "keyword"
+      },
+      "user_role": {
+        "type": "keyword"
+      },
+      "file_extension": {
+        "type": "keyword"
+      },
+      "element_id": {
+        "type": "keyword"
+      },
+      "file_type": {
+        "type": "keyword"
+      },
+      "page_type": {
+        "type": "keyword"
+      },
+      "verb": {
+        "type": "keyword"
+      },
+      "request": {
+        "type": "keyword"
+      },
+      "clientip": {
+        "type": "ip"
+      },
+      "geoip": {
+        "properties": {
+          "location": {
+            "type": "geo_point"
+          }
+        }
+      },
+      "user_agent": {
+        "properties": {
+          "name": {
+            "type": "keyword"
+          },
+          "os": {
+            "type": "keyword"
+          },
+          "device": {
+            "type": "keyword"
+          }
+        }
+      },
+      "@timestamp": {
+        "type": "date"
+      },
+      "timestamp": {
+        "type": "date",
+        "format": "dd/MMM/yyyy:HH:mm:ss Z"
+      }
+    }
+  }
+}

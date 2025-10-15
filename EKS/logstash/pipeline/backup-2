@@ -1,0 +1,90 @@
+input {
+  http {
+    port => 5044
+    codec => "plain"
+  }
+}
+
+filter {
+  # Parse Apache combined log format melhorado
+  grok {
+    match => { 
+      "message" => "%{IPORHOST:clientip} - %{USER:username} \[%{HTTPDATE:timestamp}\] \"%{WORD:verb} %{DATA:request} HTTP/%{NUMBER:httpversion}\" %{NUMBER:response} (?:-|%{NUMBER:bytes}) %{QS:referrer} %{QS:agent} %{GREEDYDATA:extra_info}"
+    }
+  }
+  
+  # Parse timestamp
+  date {
+    match => [ "timestamp", "dd/MMM/yyyy:HH:mm:ss Z" ]
+    locale => "en"
+  }
+  
+  # GeoIP
+  geoip {
+    source => "clientip"
+    target => "geoip"
+  }
+  
+  # User Agent
+  useragent {
+    source => "agent"
+    target => "user_agent"
+  }
+  
+  # Classificar tipos de requisição
+  if [request] =~ "/wp-admin" {
+    mutate {
+      add_field => { "request_type" => "admin" }
+    }
+  } else if [request] =~ "/wp-content" {
+    mutate {
+      add_field => { "request_type" => "asset" }
+    }
+  } else if [request] =~ "/wp-json" {
+    mutate {
+      add_field => { "request_type" => "api" }
+    }
+  } else {
+    mutate {
+      add_field => { "request_type" => "frontend" }
+    }
+  }
+  
+  # Extrair informações de eventos especiais
+  if [extra_info] =~ "LOGIN" {
+    mutate {
+      add_field => { "event_type" => "user_login" }
+    }
+  } else if [extra_info] =~ "LOGOUT" {
+    mutate {
+      add_field => { "event_type" => "user_logout" }
+    }
+  }
+  
+  # Limpeza de campos
+  mutate {
+    remove_field => [
+      "event", 
+      "http.request.body", 
+      "http.request.mime_type",
+      "http.version",
+      "http.method",
+      "url.path", 
+      "url.domain", 
+      "url.port",
+      "host.ip",
+      "extra_info"
+    ]
+  }
+}
+
+output {
+  elasticsearch {
+    hosts => ["http://elasticsearch:9200"]
+    index => "wordpress-logs-%{+YYYY.MM.dd}"
+  }
+  
+  stdout { 
+    codec => rubydebug 
+  }
+}

@@ -1,0 +1,111 @@
+input {
+  http {
+    port => 5044
+    codec => "plain"
+  }
+}
+
+filter {
+  # Parse Apache combined log format com campos extras
+  grok {
+    match => { 
+      "message" => "%{IPORHOST:clientip} - %{USER:username} \[%{HTTPDATE:timestamp}\] \"%{WORD:verb} %{DATA:request} HTTP/%{NUMBER:httpversion}\" %{NUMBER:response} (?:-|%{NUMBER:bytes}) %{QS:referrer} %{QS:agent} \[USER_ROLE:%{WORD:user_role}\] %{GREEDYDATA:event_info}"
+    }
+  }
+  
+  # Parse timestamp
+  date {
+    match => [ "timestamp", "dd/MMM/yyyy:HH:mm:ss Z" ]
+    locale => "en"
+  }
+  
+  # GeoIP
+  geoip {
+    source => "clientip"
+    target => "geoip"
+  }
+  
+  # User Agent
+  useragent {
+    source => "agent"
+    target => "user_agent"
+  }
+  
+  # Extrair informações de eventos
+  if [event_info] =~ /\[FILE:([^:]+):([^:]+):([^\]]+)\]/ {
+    grok {
+      match => { 
+        "event_info" => "\[FILE:%{WORD:file_type}:%{WORD:file_extension}:%{DATA:file_size}\]" 
+      }
+    }
+    mutate {
+      add_field => { "content_category" => "file" }
+    }
+  } else if [event_info] =~ /\[PAGE:([^\]]+)\]/ {
+    grok {
+      match => { 
+        "event_info" => "\[PAGE:%{WORD:page_type}\]" 
+      }
+    }
+    mutate {
+      add_field => { "content_category" => "page" }
+    }
+  }
+  
+  # Eventos especiais
+  if [event_info] =~ "LOGIN" {
+    mutate {
+      add_field => { "event_type" => "user_login" }
+    }
+  } else if [event_info] =~ "LOGOUT" {
+    mutate {
+      add_field => { "event_type" => "user_logout" }
+    }
+  } else if [event_info] =~ "REGISTER" {
+    mutate {
+      add_field => { "event_type" => "user_register" }
+    }
+  }
+  
+  # Classificar tipos de conteúdo
+  if [file_type] {
+    mutate {
+      add_field => { 
+        "content_type" => "%{file_type}" 
+      }
+    }
+  } else if [page_type] {
+    mutate {
+      add_field => { 
+        "content_type" => "%{page_type}" 
+      }
+    }
+  }
+  
+  # Limpeza de campos
+  mutate {
+    remove_field => [
+      "event", 
+      "http.request.body", 
+      "http.request.mime_type",
+      "http.version",
+      "http.method",
+      "url.path", 
+      "url.domain", 
+      "url.port",
+      "host.ip",
+      "event_info"
+    ]
+  }
+}
+
+output {
+  elasticsearch {
+    hosts => ["http://elasticsearch:9200"]
+    index => "wordpress-logs-%{+YYYY.MM.dd}"
+  }
+  
+  stdout { 
+    codec => rubydebug 
+  }
+}
