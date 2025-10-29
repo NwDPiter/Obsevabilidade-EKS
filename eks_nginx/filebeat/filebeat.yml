@@ -1,0 +1,39 @@
+filebeat.inputs:
+- type: log
+  enabled: true
+  paths:
+    - /var/log/nginx/access.log
+  json.keys_under_root: true
+  json.overwrite_keys: true
+  json.add_error_key: true
+  fields:
+    log_type: nginx_access
+  fields_under_root: true
+
+- type: log
+  enabled: true
+  paths:
+    - /var/log/nginx/error.log
+  fields:
+    log_type: nginx_error
+  fields_under_root: true
+
+filebeat.autodiscover: # Permite ver logs de conteiners Docker
+  providers:
+    - type: docker
+      hints.enabled: true
+
+processors:
+  - add_host_metadata: ~
+  - add_docker_metadata: ~
+
+output.logstash:
+  hosts: ["logstash:5044"]
+
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: /var/log/filebeat
+  name: filebeat
+  keepfiles: 7
+  permissions: 0644
