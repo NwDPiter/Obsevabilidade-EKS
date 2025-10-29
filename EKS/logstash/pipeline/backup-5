@@ -1,0 +1,122 @@
+input {
+  http {
+    port => 5044
+    codec => "plain"
+  }
+}
+
+filter {
+  # Parse para cliques
+  if [message] =~ "CLICK" {
+    grok {
+      match => { 
+        "message" => "%{IPORHOST:clientip} - %{USER:username} \[%{HTTPDATE:timestamp}\] \"CLICK %{DATA:page_url} HTTP/%{NUMBER:httpversion}\" %{NUMBER:response} (?:-|%{NUMBER:bytes}) %{QS:referrer} %{QS:agent} \[USER_ROLE:%{WORD:user_role}\] \[CLICK:%{WORD:click_type}:%{WORD:content_type}:%{WORD:file_extension}:%{DATA:element_id}:%{DATA:coordinates}\]"
+      }
+    }
+    
+    mutate {
+      add_field => { "event_type" => "click" }
+      add_field => { "click_category" => "%{click_type}" }
+      
+      # Converter campos importantes para keyword
+      convert => { 
+        "click_type" => "string"
+        "content_type" => "string" 
+        "user_role" => "string"
+        "file_extension" => "string"
+        "element_id" => "string"
+      }
+    }
+  } else {
+    # Parse normal para outras requisições
+    grok {
+      match => { 
+        "message" => "%{IPORHOST:clientip} - %{USER:username} \[%{HTTPDATE:timestamp}\] \"%{WORD:verb} %{DATA:request} HTTP/%{NUMBER:httpversion}\" %{NUMBER:response} (?:-|%{NUMBER:bytes}) %{QS:referrer} %{QS:agent} \[USER_ROLE:%{WORD:user_role}\] %{GREEDYDATA:event_info}"
+      }
+    }
+    
+    # Processar informações de arquivos para requisições normais
+    if [event_info] =~ /\[FILE:([^:]+):([^:]+):([^\]]+)\]/ {
+      grok {
+        match => { 
+          "event_info" => "\[FILE:%{WORD:file_type}:%{WORD:file_extension}:%{DATA:file_size}\]" 
+        }
+      }
+      mutate {
+        add_field => { "content_category" => "file" }
+        convert => { 
+          "file_type" => "string"
+          "file_extension" => "string"
+        }
+      }
+    } else if [event_info] =~ /\[PAGE:([^\]]+)\]/ {
+      grok {
+        match => { 
+          "event_info" => "\[PAGE:%{WORD:page_type}\]" 
+        }
+      }
+      mutate {
+        add_field => { "content_category" => "page" }
+        convert => { "page_type" => "string" }
+      }
+    }
+    
+    mutate {
+      convert => { 
+        "verb" => "string"
+        "user_role" => "string"
+        "request" => "string"
+      }
+    }
+  }
+  
+  # Parse timestamp
+  date {
+    match => [ "timestamp", "dd/MMM/yyyy:HH:mm:ss Z" ]
+    locale => "en"
+  }
+  
+  # GeoIP
+  geoip {
+    source => "clientip"
+    target => "geoip"
+  }
+  
+  # User Agent
+  useragent {
+    source => "agent"
+    target => "user_agent"
+  }
+  
+  # Limpeza de campos
+  mutate {
+    remove_field => [
+      "event", 
+      "http.request.body", 
+      "http.request.mime_type",
+      "http.version",
+      "http.method",
+      "url.path", 
+      "url.domain", 
+      "url.port",
+      "host.ip",
+      "event_info"
+    ]
+  }
+}
+
+output {
+  elasticsearch {
+    hosts => ["http://elasticsearch:9200"]
+    index => "wordpress-logs-%{+YYYY.MM.dd}"
+    
+    # Template para mapeamento correto dos campos
+    template => "/usr/share/logstash/templates/wordpress-template.json"
+    template_name => "wordpress-logs"
+    template_overwrite => true
+  }
+  
+  stdout { 
+    codec => rubydebug 
+  }
+}

@@ -1,0 +1,139 @@
+input {
+  http {
+    port => 5044
+    codec => "plain"
+  }
+}
+
+filter {
+  # Parse para todas as requisições (cliques removidos)
+  grok {
+    match => { 
+      "message" => "%{IPORHOST:clientip} - %{USER:username} \[%{HTTPDATE:timestamp}\] \"%{WORD:verb} %{DATA:request} HTTP/%{NUMBER:httpversion}\" %{NUMBER:response} (?:-|%{NUMBER:bytes}) %{QS:referrer} %{QS:agent} \[USER_ROLE:%{WORD:user_role}\] %{GREEDYDATA:event_info}"
+    }
+  }
+  
+  # Processar informações de arquivos para requisições
+  if [event_info] =~ /\[FILE:([^:]+):([^:]+):([^\]]+)\]/ {
+    grok {
+      match => { 
+        "event_info" => "\[FILE:%{WORD:file_type}:%{WORD:file_extension}:%{DATA:file_size}\]" 
+      }
+    }
+    
+    # AGRUPAR EXTENSÕES EM CATEGORIAS SIMPLIFICADAS
+    if [file_extension] {
+      if [file_extension] in ["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico", "tiff", "psd", "ai", "eps"] {
+        mutate { add_field => { "content_group" => "image" } }
+      } else if [file_extension] in ["mp3", "wav", "ogg", "m4a", "aac", "flac", "aiff", "wma", "mid", "midi"] {
+        mutate { add_field => { "content_group" => "audio" } }
+      } else if [file_extension] in ["mp4", "avi", "mov", "wmv", "flv", "webm", "mkv", "m4v", "3gp", "mpeg", "mpg", "ogv"] {
+        mutate { add_field => { "content_group" => "video" } }
+      } else if [file_extension] == "pdf" {
+        mutate { add_field => { "content_group" => "pdf" } }
+      } else if [file_extension] in ["doc", "docx", "odt", "rtf", "txt", "tex", "pages"] {
+        mutate { add_field => { "content_group" => "document" } }
+      } else if [file_extension] in ["xls", "xlsx", "csv", "ods"] {
+        mutate { add_field => { "content_group" => "spreadsheet" } }
+      } else if [file_extension] in ["ppt", "pptx", "odp"] {
+        mutate { add_field => { "content_group" => "presentation" } }
+      } else if [file_extension] in ["zip", "rar", "7z", "tar", "gz", "bz2", "dmg", "iso", "pkg", "deb", "rpm"] {
+        mutate { add_field => { "content_group" => "archive" } }
+      } else if [file_extension] in ["css", "js", "php", "html", "xml", "json"] {
+        mutate { add_field => { "content_group" => "code" } }
+      } else {
+        mutate { add_field => { "content_group" => "other" } }
+      }
+    }
+    
+    mutate {
+      add_field => { "content_category" => "file" }
+      convert => { 
+        "file_type" => "string"
+        "file_extension" => "string"
+      }
+    }
+  } else if [event_info] =~ /\[PAGE:([^\]]+)\]/ {
+    grok {
+      match => { 
+        "event_info" => "\[PAGE:%{WORD:page_type}\]" 
+      }
+    }
+    mutate {
+      add_field => { 
+        "content_category" => "page" 
+        "content_group" => "webpage"
+      }
+      convert => { "page_type" => "string" }
+    }
+  }
+  
+  # Classificar tipo de evento baseado no conteúdo
+  if [content_category] == "file" {
+    mutate {
+      add_field => { "event_type" => "file_access" }
+    }
+  } else {
+    mutate {
+      add_field => { "event_type" => "page_view" }
+    }
+  }
+  
+  mutate {
+    convert => { 
+      "verb" => "string"
+      "user_role" => "string"
+      "request" => "string"
+    }
+  }
+  
+  # Parse timestamp
+  date {
+    match => [ "timestamp", "dd/MMM/yyyy:HH:mm:ss Z" ]
+    locale => "en"
+  }
+  
+  # GeoIP
+  geoip {
+    source => "clientip"
+    target => "geoip"
+  }
+  
+  # User Agent
+  useragent {
+    source => "agent"
+    target => "user_agent"
+  }
+  
+  # Limpeza de campos
+  mutate {
+    remove_field => [
+      "event", 
+      "http.request.body", 
+      "http.request.mime_type",
+      "http.version",
+      "http.method",
+      "url.path", 
+      "url.domain", 
+      "url.port",
+      "host.ip",
+      "event_info"
+    ]
+  }
+}
+
+output {
+  elasticsearch {
+    hosts => ["http://elasticsearch:9200"]
+    index => "wordpress-logs-%{+YYYY.MM.dd}"
+    
+    # Template para mapeamento correto dos campos
+    template => "/usr/share/logstash/templates/wordpress-template.json"
+    template_name => "wordpress-logs"
+    template_overwrite => true
+  }
+  
+  stdout { 
+    codec => rubydebug 
+  }
+}

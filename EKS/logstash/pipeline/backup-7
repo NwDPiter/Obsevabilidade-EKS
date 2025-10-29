@@ -13,29 +13,8 @@ filter {
     }
   }
   
-  # NOVO: DETECTAR INSCRIÇÕES DE USUÁRIOS
-  if [username] == "subscribe_user" {
-    grok {
-      match => { 
-        "event_info" => "\[SUBSCRIBE:email:%{DATA:subscribe_email}:name:%{DATA:subscribe_name}:type:%{DATA:subscribe_type}\]" 
-      }
-    }
-    mutate {
-      add_field => { 
-        "event_type" => "user_subscription"
-        "content_category" => "subscription"
-        "content_group" => "newsletter"
-      }
-      convert => {
-        "subscribe_email" => "string"
-        "subscribe_name" => "string" 
-        "subscribe_type" => "string"
-      }
-    }
-  }
-  
   # DETECÇÃO ESPECÍFICA PARA TAINACAN
-  else if [request] =~ "/collection/" or [request] =~ "/tainacan/" {
+  if [request] =~ "/collection/" or [request] =~ "/tainacan/" {
     mutate {
       add_field => { 
         "platform" => "tainacan"
@@ -148,8 +127,7 @@ filter {
     } else {
       mutate { add_field => { "content_group" => "other" } }
     }
-  } else if [event_type] != "user_subscription" {
-    # Para páginas (sem arquivo) mas não para subscriptions
+  } else {
     mutate { add_field => { "content_group" => "webpage" } }
   }
   
