@@ -7,11 +7,9 @@
 │   └── modules.d/      # Módulos ativados (ex: nginx.yml)
 ├── kibana/config/      # Configuração do Kibana
 ├── nginx/              # Configuração e logs do Nginx
-│   ├── conf.d/         # Arquivos de configuração por site (ex: default.conf)
-│   └── logs/           # Logs de acesso e erro do Nginx
-└── wordpress/          # Arquivos e conteúdo do WordPress
-    ├── logs/           # Logs da aplicação WordPress
-    └── wp-content/     # Plugins, temas e uploads
+   ├── conf.d/         # Arquivos de configuração por site (ex: default.conf)
+   └── logs/           # Logs de acesso e erro do Nginx
+
 ```
 
 ---
@@ -300,3 +298,4 @@ Agora:
 > Se ainda não aparecerem dados, verifique se o Filebeat está colhendo eventos (`filebeat test output`) e se o Elasticsearch está recebendo (`GET _cat/indices`).
 
 ---
+
