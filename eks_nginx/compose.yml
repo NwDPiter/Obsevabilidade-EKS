@@ -74,6 +74,8 @@ services:
     depends_on:
       - elasticsearch
     command: logstash -f /usr/share/logstash/pipeline/ --config.reload.automatic
+    ports:
+      - "5044:5044"  # Porta para Filebeat enviar logs
 
   # Filebeat para coletar logs do Nginx
   filebeat:

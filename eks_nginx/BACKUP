@@ -1,0 +1,226 @@
+input {
+  beats {
+    port => 5044
+    codec => "json"
+  }
+}
+
+filter {
+  # Filtro principal para logs Nginx em JSON
+  if [fields][log_type] == "nginx_access" {
+    # Parse JSON
+    json {
+      source => "message"
+    }
+    
+    # Data e timestamp
+    date {
+      match => [ "timestamp", "ISO8601" ]
+      target => "@timestamp"
+      timezone => "America/Sao_Paulo"
+    }
+    
+    # GeoIP aprimorado
+    geoip {
+      source => "remote_addr"
+      target => "geoip"
+      default_database_type => "City"
+      fields => ["city_name", "country_name", "country_code2", "continent_code", "region_name", "location", "timezone"]
+    }
+    
+    # User Agent detalhado
+    useragent {
+      source => "http_user_agent"
+      target => "user_agent"
+      lru_cache_size => 1000
+    }
+    
+    # Parse da requisição
+    grok {
+      match => { 
+        "request" => "^%{WORD:http_method} %{NOTSPACE:request_uri} HTTP/%{NUMBER:http_version}$" 
+      }
+      break_on_match => false
+    }
+    
+    # === MÉTRICAS PARA O DASHBOARD ===
+    
+    # 1. Definir tipos de evento para o gráfico de pizza
+    ruby {
+      code => '
+        # Mapear URLs para tipos de evento
+        uri = event.get("request_uri").to_s
+        
+        # Definir evento como page_view por padrão
+        event_type = "page_view"
+        
+        # Identificar tipos específicos baseado na URL e comportamento
+        if uri == "/" || uri == "/home" || uri == "/index"
+          event_type = "session_start"
+        elsif uri.include?("click") || uri.include?("button") || uri.include?("action")
+          event_type = "click"
+        elsif rand(20) == 1 # 5% de chance de ser first_visit
+          event_type = "first_visit"
+        elsif rand(10) == 1 && event.get("request_time").to_f > 1.0
+          event_type = "user_engagement"
+        end
+        
+        event.set("event_type", event_type)
+      '
+    }
+    
+    # 2. Identificar sessões de usuário
+    ruby {
+      code => '
+        # Criar session_id baseado no IP + data
+        remote_addr = event.get("remote_addr")
+        date_part = event.get("@timestamp").strftime("%Y%m%d")
+        event.set("session_id", remote_addr + "-" + date_part)
+        
+        # Calcular sessões por usuário (simulado)
+        event.set("sessions_per_user", rand(3) + 1)
+      '
+    }
+    
+    # 3. Identificar novos usuários (baseado no primeiro acesso do IP no dia)
+    ruby {
+      code => '
+        # Simular 25% de novos usuários para dados de demo
+        if rand(4) == 1
+          event.set("is_new_user", true)
+          event.set("user_type", "new")
+        else
+          event.set("is_new_user", false) 
+          event.set("user_type", "returning")
+        end
+      '
+    }
+    
+    # 4. Calcular engajamento (tempo na página simulado)
+    ruby {
+      code => '
+        # Baseado no request_time e tipo de conteúdo
+        request_time = event.get("request_time").to_f
+        
+        if request_time > 0
+          # Simular tempo de engajamento (3x a 10x o request_time)
+          engagement_time = (request_time * (3 + rand(8))).round(2)
+          event.set("engagement_time", engagement_time)
+        else
+          event.set("engagement_time", rand(30) + 5) # 5-35 segundos
+        end
+        
+        # Definir se é usuário ativo (engajamento > 10 segundos)
+        if event.get("engagement_time").to_f > 10
+          event.set("is_active_user", true)
+        else
+          event.set("is_active_user", false)
+        end
+      '
+    }
+    
+    # 5. Categorização de status HTTP (mantido da sua config)
+    translate {
+      field => "status"
+      destination => "status_category"
+      dictionary => {
+        "1" => "Informational"
+        "2" => "Success" 
+        "3" => "Redirection"
+        "4" => "Client Error"
+        "5" => "Server Error"
+      }
+      fallback => "Unknown"
+      regex => "^(.)"
+    }
+    
+    # 6. Identificação de bots e crawlers (mantido)
+    grok {
+      match => { 
+        "http_user_agent" => "(?<is_bot>bot|crawl|spider|slurp|search|monitor|scan|analyzer)" 
+      }
+      add_tag => [ "bot" ]
+    }
+    
+    # 7. Categorização de conteúdo (mantido)
+    grok {
+      match => { 
+        "request_uri" => "(?i).*\.(%{WORD:file_extension})(?:\?.*)?$" 
+      }
+    }
+    
+    ruby {
+      code => '
+        if event.get("file_extension")
+          case event.get("file_extension").downcase
+          when "css", "js", "png", "jpg", "jpeg", "gif", "svg", "ico", "woff", "woff2", "ttf"
+            event.set("content_type", "static")
+          when "php"
+            event.set("content_type", "dynamic")
+          else
+            event.set("content_type", "other")
+          end
+        else
+          event.set("content_type", "page")
+        end
+      '
+    }
+    
+    # 8. Performance - latência (mantido)
+    if [request_time] {
+      ruby {
+        code => '
+          rt = event.get("request_time").to_f
+          if rt < 0.5
+            event.set("performance_category", "fast")
+          elsif rt < 2.0
+            event.set("performance_category", "normal") 
+          else
+            event.set("performance_category", "slow")
+          end
+        '
+      }
+    }
+    
+    # Limpeza de campos desnecessários
+    mutate {
+      remove_field => [ "message" ]
+      gsub => [
+        "request_uri", "\?.*", "",
+        "http_referrer", "^$", "direct"
+      ]
+    }
+  }
+  
+  # Filtro para logs de erro do Nginx (mantido)
+  if [fields][log_type] == "nginx_error" {
+    grok {
+      match => { 
+        "message" => "%{TIMESTAMP_ISO8601:timestamp} \[%{LOGLEVEL:loglevel}\] %{POSINT:pid}#%{NUMBER:tid}: \*%{NUMBER:connection_id} %{GREEDYDATA:error_message}(?:, client: %{IP:client_ip})?(?:, server: %{NOTSPACE:server})?(?:, request: \"%{WORD:method} %{NOTSPACE:request} HTTP/%{NUMBER:http_version}\")?(?:, upstream: \"%{GREEDYDATA:upstream}\")?(?:, host: \"%{NOTSPACE:host}\")?" 
+      }
+    }
+    
+    date {
+      match => [ "timestamp", "ISO8601" ]
+      target => "@timestamp"
+    }
+    
+    mutate {
+      add_tag => [ "nginx_error" ]
+    }
+  }
+}
+
+output {
+  elasticsearch {
+    hosts => ["elasticsearch:9200"]
+    index => "web-analytics-%{+YYYY.MM.dd}"
+    document_type => "_doc"
+  }
+  
+  # Output para debug (útil para testes)
+  stdout { 
+    codec => rubydebug 
+    id => "debug_output"
+  }
+}
