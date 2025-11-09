@@ -114,8 +114,8 @@ services:
         define('WP_DEBUG_LOG', true);
         define('WP_DEBUG_DISPLAY', false);
     volumes:
-      - ./wordpress/wp-content:/var/www/html/wp-content
-      - ./wordpress/logs:/var/www/html/wp-content/logs
+      - /wordpress/wp-content:/var/www/html/wp-content
+      - /wordpress/logs:/var/www/html/wp-content/logs
     networks:
       - elk-network
       - wordpress-network
