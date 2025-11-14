@@ -1,0 +1,7 @@
+config.reload.automatic: true
+config.reload.interval: 10s
+http.host: 0.0.0.0
+log.level: info
+path.config: /usr/share/logstash/pipeline
+path.logs: /usr/share/logstash/logs
+xpack.monitoring.enabled: false

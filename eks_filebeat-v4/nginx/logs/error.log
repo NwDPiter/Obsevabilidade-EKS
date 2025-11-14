@@ -1,0 +1,1 @@
+2025/11/14 00:26:19 [error] 29#29: *1 connect() failed (111: Connection refused) while connecting to upstream, client: 172.18.0.1, server: _, request: "POST /wp-admin/admin-ajax.php HTTP/1.1", upstream: "http://172.18.0.5:80/wp-admin/admin-ajax.php", host: "localhost", referrer: "http://localhost/wp-admin/plugins.php"
